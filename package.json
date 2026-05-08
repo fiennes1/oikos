@@ -1,0 +1,11 @@
+{
+  "name": "oikos",
+  "private": true,
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
+  "scripts": {
+    "heroku-postbuild": "npm install --prefix frontend --include=dev && npm run build --prefix frontend"
+  }
+}

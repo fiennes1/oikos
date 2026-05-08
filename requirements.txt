@@ -1,0 +1,2 @@
+# Heroku (buildpack Python) — dependências reais em backend/requirements.txt
+-r backend/requirements.txt
