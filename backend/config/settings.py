@@ -20,6 +20,10 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 if DEBUG and "testserver" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS = list(ALLOWED_HOSTS) + ["testserver"]
 
+# Heroku expõe DYNO em todo dyno; *.herokuapp.com casa com o host do app (evita DisallowedHost se esquecer o config)
+if os.environ.get("DYNO") and ".herokuapp.com" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = list(ALLOWED_HOSTS) + [".herokuapp.com"]
+
 # Heroku e outros proxies HTTPS
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
