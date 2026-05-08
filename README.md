@@ -119,14 +119,17 @@ heroku addons:create heroku-postgresql:essential-0 -a NOME_DO_APP
 
 ### 3. Variáveis de ambiente
 
+O **mesmo dyno** serve API + React (monolito): o passo de build do Node gera `frontend/dist/`; o Gunicorn só entrega arquivos já compilados.
+
+Defina, por exemplo:
+
 ```bash
 heroku config:set DEBUG=False -a NOME_DO_APP
 heroku config:set SECRET_KEY="uma-chave-longa-aleatoria" -a NOME_DO_APP
-heroku config:set ALLOWED_HOSTS=".herokuapp.com,NOME_DO_APP.herokuapp.com" -a NOME_DO_APP
 heroku config:set CSRF_TRUSTED_ORIGINS="https://NOME_DO_APP.herokuapp.com" -a NOME_DO_APP
 ```
 
-Ajuste `CORS_ALLOWED_ORIGINS` se o front for servido de outro domínio (no monolito, a SPA vem do mesmo host — costuma bastar o mesmo URL em CSRF).
+(`ALLOWED_HOSTS` pode ficar vazio no config se o código já acrescenta `.herokuapp.com` quando existe `DYNO`.)
 
 ### 4. Deploy
 
@@ -136,7 +139,7 @@ Conecte o GitHub e faça deploy da branch `main`, ou:
 git push heroku main
 ```
 
-O **Node** roda `heroku-postbuild` (build do Vite em `frontend/dist/`). O **Python** instala deps pela `requirements.txt` na raiz. O **`release`** do `Procfile` aplica migrações e `collectstatic`.
+O **Node** (primeiro buildpack) executa o `heroku-postbuild` do `package.json` da raiz: `npm install` + `npm run build` em `frontend/`, gerando `frontend/dist/`. O **Python** instala deps pela `requirements.txt`. O **`release`** do `Procfile` roda migrações e `collectstatic` (inclui os assets da SPA).
 
 ### 5. Usuário admin (uma vez)
 
@@ -148,7 +151,7 @@ heroku run "cd backend && python manage.py createsuperuser" -a NOME_DO_APP
 
 | Arquivo | Função |
 |--------|--------|
-| `package.json` | Buildpack Node; script `heroku-postbuild` gera o frontend |
+| `package.json` (raiz) | `heroku-postbuild` instala e faz o build do Vite em `frontend/` |
 | `requirements.txt` | Aponta para `backend/requirements.txt` |
 | `runtime.txt` | Versão do Python |
 | `Procfile` | `release` (migrate + collectstatic) e `web` (Gunicorn) |

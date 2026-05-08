@@ -6,6 +6,6 @@
     "npm": "10.x"
   },
   "scripts": {
-    "heroku-postbuild": "npm install --prefix frontend --include=dev && npm run build --prefix frontend"
+    "heroku-postbuild": "npm install --prefix frontend && npm run build --prefix frontend && node -e \"require('fs').accessSync(require('path').join('frontend','dist','index.html'))\""
   }
 }

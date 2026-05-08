@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -65,15 +67,29 @@ urlpatterns = [
 
 
 class SpaEntryView(View):
+    """
+    SPA: um único dyno serve API + arquivos estáticos (WhiteNoise) + index.html.
+    Procura o build em frontend/dist/ ou, após collectstatic, em STATIC_ROOT/index.html.
+    """
+
     def get(self, request, *args, **kwargs):
-        p = getattr(settings, "FRONTEND_INDEX", None)
-        if p is None or not p.is_file():
-            return HttpResponse(
-                "Compile o frontend: cd frontend && npm install && npm run build",
-                status=503,
-                content_type="text/plain; charset=utf-8",
-            )
-        return FileResponse(open(p, "rb"), content_type="text/html; charset=utf-8")
+        repo_root = Path(settings.BASE_DIR).parent
+        candidates = [
+            repo_root / "frontend" / "dist" / "index.html",
+            Path(settings.STATIC_ROOT) / "index.html",
+        ]
+        for p in candidates:
+            if p.is_file():
+                return FileResponse(open(p, "rb"), content_type="text/html; charset=utf-8")
+        msg = (
+            "Frontend não encontrado. Este app é monolítico: um único dyno serve Django + a SPA após o build do Vite.\n\n"
+            "Na Heroku, confira o log de build:\n"
+            "1) Buildpacks: Node.js em primeiro, Python em último.\n"
+            "2) O package.json da raiz deve rodar heroku-postbuild (instala frontend e executa vite build).\n"
+            "3) Faça deploy de novo; no log deve aparecer \"vite build\" e não pode haver erro antes do release.\n\n"
+            "Local: cd frontend && npm install && npm run build && cd ../backend && python manage.py collectstatic --noinput"
+        )
+        return HttpResponse(msg, status=503, content_type="text/plain; charset=utf-8")
 
 
 if settings.DEBUG:
