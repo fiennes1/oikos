@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from apps.events.models import Event, ScoredBy
 from apps.scores.models import PointsTableEntry, Result, ResultAuditLog, ScoreConfig
+from apps.scores.services import _uses_team_individual_scoring
 
 
 class ScoreConfigSerializer(serializers.ModelSerializer):
@@ -23,6 +24,8 @@ class ResultSerializer(serializers.ModelSerializer):
     team_name = serializers.SerializerMethodField()
     event_name = serializers.CharField(source="event.name", read_only=True)
     entry_category = serializers.SerializerMethodField()
+    display_position = serializers.SerializerMethodField()
+    is_tied = serializers.SerializerMethodField()
 
     class Meta:
         model = Result
@@ -38,10 +41,13 @@ class ResultSerializer(serializers.ModelSerializer):
             "raw_score",
             "tiebreak_score",
             "position",
+            "position_override",
+            "display_position",
+            "is_tied",
             "points_earned",
             "notes",
         )
-        read_only_fields = ("position", "points_earned")
+        read_only_fields = ("position", "points_earned", "display_position", "is_tied")
 
     def get_athlete_name(self, obj):
         return str(obj.athlete) if obj.athlete_id else None
@@ -55,6 +61,18 @@ class ResultSerializer(serializers.ModelSerializer):
         if obj.team_id:
             return "Team"
         return None
+
+    def get_display_position(self, obj):
+        return obj.position_override if obj.position_override is not None else obj.position
+
+    def get_is_tied(self, obj):
+        if obj.position is None:
+            return False
+        return (
+            Result.objects.filter(event_id=obj.event_id, position=obj.position)
+            .exclude(pk=obj.pk)
+            .exists()
+        )
 
     def validate(self, attrs):
         athlete = attrs.get("athlete")
@@ -72,18 +90,20 @@ class ResultSerializer(serializers.ModelSerializer):
         if not event:
             return attrs
 
-        if event.scored_by == ScoredBy.TEAM:
+        team_individual = _uses_team_individual_scoring(event)
+
+        if event.scored_by == ScoredBy.TEAM and not team_individual:
             if not team:
                 raise serializers.ValidationError({"team": "Esta prova é pontuada por time."})
             if athlete:
                 raise serializers.ValidationError({"athlete": "Esta prova não usa atleta individual."})
             if team.championship_id != event.competition_id:
                 raise serializers.ValidationError({"team": "Time não pertence ao campeonato da prova."})
-        else:
+        elif team_individual or event.scored_by == ScoredBy.ATHLETE:
             if not athlete:
-                raise serializers.ValidationError({"athlete": "Esta prova é pontuada por atleta."})
+                raise serializers.ValidationError({"athlete": "Informe o atleta."})
             if team:
-                raise serializers.ValidationError({"team": "Esta prova não usa time."})
+                raise serializers.ValidationError({"team": "Use apenas atleta neste lançamento."})
             if athlete.championship_id != event.competition_id:
                 raise serializers.ValidationError({"athlete": "Atleta não pertence ao campeonato da prova."})
 
@@ -93,6 +113,9 @@ class ResultSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"athlete": "A categoria do atleta não é elegível nesta prova."}
                     )
+        else:
+            if bool(athlete) == bool(team):
+                raise serializers.ValidationError("Informe exatamente um: atleta ou time.")
 
         return attrs
 

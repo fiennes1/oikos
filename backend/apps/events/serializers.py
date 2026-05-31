@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.events.models import Category, Championship, Event, HeatSchedule, HeatStatus
+from apps.events.models import Category, Championship, Event, HeatSchedule
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -54,6 +54,9 @@ class EventSerializer(serializers.ModelSerializer):
             "event_type",
             "score_mode",
             "scored_by",
+            "metric_type",
+            "team_scoring_format",
+            "team_aggregate_method",
             "scheduled_at",
             "location",
             "eligible_categories",
@@ -121,6 +124,7 @@ class HeatScheduleSerializer(serializers.ModelSerializer):
             "team",
             "team_name",
             "heat_number",
+            "lane_number",
             "scheduled_time",
             "status",
         )
@@ -142,17 +146,16 @@ class HeatScheduleSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance, validated_data):
-        new_status = validated_data.get("status", instance.status)
-        if new_status == HeatStatus.IN_PROGRESS and instance.status != HeatStatus.IN_PROGRESS:
-            qs = HeatSchedule.objects.filter(
-                event=instance.event,
-                heat_number__lt=instance.heat_number,
-                status=HeatStatus.IN_PROGRESS,
-            )
-            if qs.exists():
-                raise serializers.ValidationError(
-                    {"status": "Não é possível iniciar este heat enquanto um heat anterior ainda está em andamento."}
-                )
+        new_status = validated_data.get("status")
+        if new_status is not None and new_status != instance.status:
+            from apps.events.heat_batch import HeatBatchError, set_heat_batch_status
+
+            try:
+                set_heat_batch_status(instance.event_id, instance.heat_number, new_status)
+            except HeatBatchError as e:
+                raise serializers.ValidationError({"status": str(e)}) from e
+            instance.refresh_from_db()
+            return instance
         return super().update(instance, validated_data)
 
 
@@ -165,6 +168,7 @@ class PublicHeatSerializer(serializers.ModelSerializer):
             "id",
             "event",
             "heat_number",
+            "lane_number",
             "scheduled_time",
             "status",
             "label",

@@ -3,6 +3,7 @@ import { useAuthStore } from "./store/auth.js";
 import ThemeSync from "./components/ThemeSync.jsx";
 import Home from "./pages/public/Home.jsx";
 import Schedule from "./pages/public/Schedule.jsx";
+import Batches from "./pages/public/Batches.jsx";
 import EventResults from "./pages/public/EventResults.jsx";
 import AthleteProfile from "./pages/public/AthleteProfile.jsx";
 import Login from "./pages/admin/Login.jsx";
@@ -29,6 +30,7 @@ export default function App() {
       <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/cronograma" element={<Schedule />} />
+      <Route path="/baterias" element={<Batches />} />
       <Route path="/prova/:id" element={<EventResults />} />
       <Route path="/atleta/:id" element={<AthleteProfile />} />
       <Route path="/admin/login" element={<Login />} />

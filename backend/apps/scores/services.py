@@ -6,7 +6,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 
-from apps.events.models import Event, EventScoreMode, EventType, ScoredBy
+from apps.events.models import ChampionshipMode, Event, EventScoreMode, EventType, ScoredBy, TeamAggregateMethod, TeamScoringFormat
 from apps.scores.models import PointsTableEntry, Result, ScoreConfig
 
 
@@ -29,18 +29,15 @@ def default_points_for_position(position: int) -> int:
 
 
 def _ensure_score_config(event: Event) -> ScoreConfig:
-    if event.event_type == EventType.FOR_TIME:
-        metric = "seconds"
-    elif event.event_type == EventType.AMRAP:
-        metric = "reps"
-    elif event.event_type == EventType.MAX_LOAD:
-        metric = "kg"
-    elif event.event_type == EventType.MAX_REPS:
-        metric = "reps"
-    elif event.event_type == EventType.POINTS:
-        metric = "points"
-    else:
-        metric = "seconds"
+    metric_map = {
+        EventType.FOR_TIME: "seconds",
+        EventType.AMRAP: "reps",
+        EventType.MAX_LOAD: "kg",
+        EventType.MAX_REPS: "reps",
+        EventType.POINTS: "points",
+        EventType.TIEBREAK: "seconds",
+    }
+    metric = getattr(event, "metric_type", None) or metric_map.get(event.event_type, "seconds")
 
     lower = event.score_mode == EventScoreMode.LOWER_IS_BETTER
 
@@ -78,15 +75,75 @@ def _assign_placements(event: Event, ordered: list, category_id: Optional[int]) 
             rank = i + 1
             prev_key = key
         pts = _lookup_points(event, category_id, rank)
-        Result.objects.filter(pk=r.pk).update(position=rank, points_earned=pts)
+        if r.position_override is None:
+            Result.objects.filter(pk=r.pk).update(position=rank, points_earned=pts)
         j = i + 1
         while j < len(ordered):
             r2 = ordered[j]
             if (r2.raw_score, r2.tiebreak_score) != key:
                 break
-            Result.objects.filter(pk=r2.pk).update(position=rank, points_earned=pts)
+            if r2.position_override is None:
+                Result.objects.filter(pk=r2.pk).update(position=rank, points_earned=pts)
             j += 1
         i = j
+
+
+def _aggregate_raw(scores: list, method: str, lower_is_better: bool):
+    if not scores:
+        return None
+    if method == TeamAggregateMethod.AVERAGE:
+        return sum(scores) / len(scores)
+    if method == TeamAggregateMethod.BEST:
+        return min(scores) if lower_is_better else max(scores)
+    return sum(scores)
+
+
+def _uses_team_individual_scoring(event: Event) -> bool:
+    if event.scored_by == ScoredBy.TEAM and event.team_scoring_format == TeamScoringFormat.INDIVIDUAL:
+        return True
+    if event.scored_by == ScoredBy.ATHLETE and event.competition.mode == ChampionshipMode.TEAM:
+        return True
+    return False
+
+
+def _sync_team_aggregate_results(event: Event, lower: bool) -> None:
+    """Atualiza resultados sintéticos por time a partir dos lançamentos individuais."""
+    athlete_results = list(
+        Result.objects.filter(event=event, athlete__isnull=False).select_related("athlete", "athlete__team")
+    )
+    if not athlete_results:
+        Result.objects.filter(event=event, team__isnull=False, athlete__isnull=True).delete()
+        return
+
+    by_team: dict[int, list] = defaultdict(list)
+    for r in athlete_results:
+        tid = r.athlete.team_id if r.athlete_id else None
+        if tid:
+            by_team[tid].append(r)
+
+    method = event.team_aggregate_method or TeamAggregateMethod.SUM
+    if method == TeamAggregateMethod.MANUAL:
+        return
+
+    existing_team_ids = set(
+        Result.objects.filter(event=event, team__isnull=False, athlete__isnull=True).values_list("team_id", flat=True)
+    )
+    seen_team_ids = set()
+
+    for team_id, group in by_team.items():
+        seen_team_ids.add(team_id)
+        agg = _aggregate_raw([r.raw_score for r in group], method, lower)
+        if agg is None:
+            continue
+        Result.objects.update_or_create(
+            event=event,
+            team_id=team_id,
+            athlete=None,
+            defaults={"raw_score": agg},
+        )
+
+    for tid in existing_team_ids - seen_team_ids:
+        Result.objects.filter(event=event, team_id=tid, athlete__isnull=True).delete()
 
 
 def recalculate_event_rankings(event: Event) -> None:
@@ -99,14 +156,19 @@ def recalculate_event_rankings(event: Event) -> None:
     cfg = _ensure_score_config(event)
     lower = cfg.lower_is_better
 
+    if _uses_team_individual_scoring(event):
+        _sync_team_aggregate_results(event, lower)
+        # Posição/pontos só nos resultados consolidados por time
+        Result.objects.filter(event=event, athlete__isnull=False).update(position=None, points_earned=0)
+
     results = list(
         Result.objects.filter(event=event).select_related("athlete", "athlete__category", "team")
     )
     if not results:
         return
 
-    if event.scored_by == ScoredBy.TEAM:
-        bucket = [r for r in results if r.team_id]
+    if event.scored_by == ScoredBy.TEAM or _uses_team_individual_scoring(event):
+        bucket = [r for r in results if r.team_id and not r.athlete_id]
         bucket.sort(key=lambda r: _sort_key_result(r, lower))
         _assign_placements(event, bucket, category_id=None)
         return

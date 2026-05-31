@@ -48,34 +48,40 @@ class PublicChampionshipLeaderboardView(APIView):
         return Response({"championship_id": int(pk), "category": cat, "rows": rows})
 
 
+def _schedule_payload(comp):
+    if not comp:
+        return {"heats": [], "current_heat_id": None, "current_live_batch": None, "events": []}
+    heats = (
+        HeatSchedule.objects.filter(event__competition=comp)
+        .select_related("event", "athlete", "team")
+        .order_by("event__display_order", "heat_number", "lane_number", "scheduled_time")
+    )
+    current = (
+        heats.filter(status=HeatStatus.IN_PROGRESS)
+        .order_by("event__display_order", "heat_number", "lane_number")
+        .first()
+    )
+    live_batch = None
+    if current:
+        live_batch = {"event_id": current.event_id, "heat_number": current.heat_number}
+    data = PublicHeatSerializer(heats, many=True).data
+    return {
+        "heats": data,
+        "current_heat_id": current.id if current else None,
+        "current_live_batch": live_batch,
+        "events": EventSerializer(
+            Event.objects.filter(competition=comp).order_by("display_order"),
+            many=True,
+        ).data,
+    }
+
+
 class PublicChampionshipScheduleView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, pk):
         comp = Championship.objects.filter(pk=pk).first()
-        if not comp:
-            return Response({"heats": [], "current_heat_id": None, "events": []})
-        heats = (
-            HeatSchedule.objects.filter(event__competition=comp)
-            .select_related("event", "athlete", "team")
-            .order_by("event__display_order", "heat_number", "scheduled_time")
-        )
-        current = (
-            heats.filter(status=HeatStatus.IN_PROGRESS)
-            .order_by("event__display_order", "heat_number")
-            .first()
-        )
-        data = PublicHeatSerializer(heats, many=True).data
-        return Response(
-            {
-                "heats": data,
-                "current_heat_id": current.id if current else None,
-                "events": EventSerializer(
-                    Event.objects.filter(competition=comp).order_by("display_order"),
-                    many=True,
-                ).data,
-            }
-        )
+        return Response(_schedule_payload(comp))
 
 
 class PublicCompetitionInfoView(APIView):
@@ -95,29 +101,7 @@ class PublicScheduleView(APIView):
 
     def get(self, request):
         comp = get_active_championship()
-        if not comp:
-            return Response({"heats": [], "current_heat_id": None, "events": []})
-        heats = (
-            HeatSchedule.objects.filter(event__competition=comp)
-            .select_related("event", "athlete", "team")
-            .order_by("event__display_order", "heat_number", "scheduled_time")
-        )
-        current = (
-            heats.filter(status=HeatStatus.IN_PROGRESS)
-            .order_by("event__display_order", "heat_number")
-            .first()
-        )
-        data = PublicHeatSerializer(heats, many=True).data
-        return Response(
-            {
-                "heats": data,
-                "current_heat_id": current.id if current else None,
-                "events": EventSerializer(
-                    Event.objects.filter(competition=comp).order_by("display_order"),
-                    many=True,
-                ).data,
-            }
-        )
+        return Response(_schedule_payload(comp))
 
 
 class PublicEventResultsView(APIView):
@@ -125,17 +109,38 @@ class PublicEventResultsView(APIView):
 
     def get(self, request, pk):
         from apps.scores.models import Result
+        from apps.scores.services import _uses_team_individual_scoring
 
         event = Event.objects.filter(pk=pk).select_related("competition").first()
         if not event:
             return Response({"detail": "Prova não encontrada"}, status=404)
-        results = Result.objects.filter(event=event).select_related("athlete", "team").order_by(
-            "position"
+        results = list(
+            Result.objects.filter(event=event).select_related("athlete", "athlete__team", "team")
         )
+        team_individual = _uses_team_individual_scoring(event)
+
+        def sort_key(r):
+            return r.position_override if r.position_override is not None else (r.position or 9999)
+
+        if team_individual:
+            team_rows = sorted([r for r in results if r.team_id and not r.athlete_id], key=sort_key)
+            athlete_rows = sorted([r for r in results if r.athlete_id], key=lambda r: (r.athlete.team_id or 0, r.athlete.name))
+            return Response(
+                {
+                    "event": EventSerializer(event).data,
+                    "results": ResultSerializer(team_rows, many=True).data,
+                    "individual_results": ResultSerializer(athlete_rows, many=True).data,
+                    "scoring_mode": "team_with_individual",
+                }
+            )
+
+        results.sort(key=sort_key)
         return Response(
             {
                 "event": EventSerializer(event).data,
                 "results": ResultSerializer(results, many=True).data,
+                "individual_results": [],
+                "scoring_mode": "standard",
             }
         )
 
@@ -150,9 +155,13 @@ class PublicLeaderboardView(APIView):
             return Response({"category": category, "competition_id": None, "rows": []})
         if comp.mode == ChampionshipMode.TEAM:
             rows = leaderboard_for_championship(comp.id, category_slug=None)
+        elif comp.mode == ChampionshipMode.MIXED:
+            team_rows = leaderboard_for_championship(comp.id, category_slug=None)
+            ind_rows = leaderboard_for_category(comp.id, category)
+            rows = {"team": team_rows, "individual": ind_rows}
         else:
             rows = leaderboard_for_category(comp.id, category)
-        return Response({"category": category, "competition_id": comp.id, "rows": rows})
+        return Response({"category": category, "competition_id": comp.id, "rows": rows, "mode": comp.mode})
 
 
 class AdminDashboardView(APIView):

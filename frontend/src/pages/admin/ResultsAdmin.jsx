@@ -3,6 +3,7 @@ import api from "../../api/client.js";
 import AdminShell from "./AdminShell.jsx";
 import HelpHint from "../../components/HelpHint.jsx";
 import { btn, btnBlock, field, panel } from "../../ui/classes.js";
+import { formatScore } from "../../utils/formatScore.js";
 
 const RAW_SCORE_HINT =
   "Performance principal nesta prova: For Time → tempo total em segundos (ex.: 285 = 4min45s); AMRAP → repetições completas; Max Load → kg; Max Reps → reps; Pontos → valor numérico conforme a prova. Use sempre o mesmo critério para todos neste WOD.";
@@ -22,7 +23,17 @@ export default function ResultsAdmin() {
   const [athletes, setAthletes] = useState([]);
   const [teams, setTeams] = useState([]);
   const [results, setResults] = useState([]);
-  const [form, setForm] = useState({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "" });
+  const [form, setForm] = useState({
+    athlete: "",
+    team: "",
+    raw_score: "",
+    tiebreak_score: "",
+    notes: "",
+    position_override: "",
+  });
+  const [filterTeamId, setFilterTeamId] = useState("");
+  const [jointTeamScore, setJointTeamScore] = useState(false);
+  const [viewTab, setViewTab] = useState("entry");
   const [editingId, setEditingId] = useState(null);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -60,7 +71,9 @@ export default function ResultsAdmin() {
 
   useEffect(() => {
     setEditingId(null);
-    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "" });
+    setFilterTeamId("");
+    setJointTeamScore(false);
+    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "", position_override: "" });
   }, [eventId]);
 
   useEffect(() => {
@@ -74,15 +87,60 @@ export default function ResultsAdmin() {
     setResults(r.data);
   }
 
+  const isTeamJoint =
+    selectedEvent?.scored_by === "team" && selectedEvent?.team_scoring_format !== "individual";
+  const isTeamIndividual =
+    selectedEvent?.scored_by === "team" && selectedEvent?.team_scoring_format === "individual";
+  const showTeamFilter = !isTeamJoint && (isTeamIndividual || selectedEvent?.scored_by === "athlete");
+
+  const filteredAthletes = useMemo(() => {
+    if (!filterTeamId) return athletes;
+    return athletes.filter((a) => String(a.team) === filterTeamId);
+  }, [athletes, filterTeamId]);
+
+  const rankingRows = useMemo(() => {
+    const metric = selectedEvent?.metric_type || "seconds";
+    const rows = [...results];
+    const teamInd = isTeamIndividual;
+    const display = teamInd
+      ? rows.filter((r) => r.team && !r.athlete)
+      : rows.filter((r) => (isTeamJoint ? r.team && !r.athlete : true));
+    return display
+      .sort((a, b) => {
+        const pa = a.display_position ?? a.position ?? 9999;
+        const pb = b.display_position ?? b.position ?? 9999;
+        return pa - pb;
+      })
+      .map((r) => ({ ...r, formatted: formatScore(r.raw_score, metric) }));
+  }, [results, selectedEvent, isTeamJoint, isTeamIndividual]);
+
   async function submit(e) {
     e.preventDefault();
-    const payload = {
+    const base = {
       event: Number(eventId),
       raw_score: form.raw_score,
       tiebreak_score: form.tiebreak_score || null,
       notes: form.notes,
+      position_override: form.position_override ? Number(form.position_override) : null,
     };
-    if (selectedEvent?.scored_by === "team") {
+
+    if (jointTeamScore && filterTeamId && form.raw_score) {
+      const members = athletes.filter((a) => String(a.team) === filterTeamId);
+      if (!members.length) return;
+      for (const a of members) {
+        const existing = results.find((r) => r.athlete === a.id);
+        const payload = { ...base, athlete: a.id, team: null };
+        if (existing) await api.patch(`/admin/scores/results/${existing.id}/`, payload);
+        else await api.post("/admin/scores/results/", payload);
+      }
+      setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "", position_override: "" });
+      setJointTeamScore(false);
+      await refreshResults();
+      return;
+    }
+
+    const payload = { ...base };
+    if (selectedEvent?.scored_by === "team" && !isTeamIndividual) {
       payload.team = Number(form.team);
       payload.athlete = null;
       if (!form.team) return;
@@ -97,7 +155,7 @@ export default function ResultsAdmin() {
     } else {
       await api.post("/admin/scores/results/", payload);
     }
-    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "" });
+    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "", position_override: "" });
     await refreshResults();
   }
 
@@ -109,13 +167,18 @@ export default function ResultsAdmin() {
       raw_score: r.raw_score != null && r.raw_score !== "" ? String(r.raw_score) : "",
       tiebreak_score: r.tiebreak_score != null && r.tiebreak_score !== "" ? String(r.tiebreak_score) : "",
       notes: r.notes || "",
+      position_override: r.position_override != null ? String(r.position_override) : "",
     });
+    if (r.athlete) {
+      const a = athletes.find((x) => x.id === r.athlete);
+      if (a?.team) setFilterTeamId(String(a.team));
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function cancelEdit() {
     setEditingId(null);
-    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "" });
+    setForm({ athlete: "", team: "", raw_score: "", tiebreak_score: "", notes: "", position_override: "" });
   }
 
   async function removeResult(id) {
@@ -150,14 +213,35 @@ export default function ResultsAdmin() {
   const btnGhost =
     "min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors border-[color:var(--border-color)] text-[color:var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/10";
 
-  const scoredByTeam = selectedEvent?.scored_by === "team";
-  const participantHint = scoredByTeam
-    ? "Esta prova é pontuada por time — escolha um time do campeonato."
-    : "Esta prova é pontuada por atleta — escolha um atleta inscrito no campeonato.";
+  const scoredByTeam = selectedEvent?.scored_by === "team" && !isTeamIndividual;
+  const participantHint = isTeamIndividual
+    ? "Prova com métrica individual por atleta — o total do time é calculado automaticamente (soma/média/melhor conforme a prova)."
+    : scoredByTeam
+      ? "Pontuação conjunta por time — um lançamento por time."
+      : "Pontuação por atleta — use o filtro de time para ver só os membros de um time.";
 
   return (
     <AdminShell title="Lançamento de Resultados">
       <div className="admin-results-pad">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`rounded-lg border px-4 py-2 text-sm font-semibold ${viewTab === "entry" ? "border-[color:var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]" : ""}`}
+            style={{ borderColor: "var(--border-color)" }}
+            onClick={() => setViewTab("entry")}
+          >
+            Lançar
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg border px-4 py-2 text-sm font-semibold ${viewTab === "ranking" ? "border-[color:var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]" : ""}`}
+            style={{ borderColor: "var(--border-color)" }}
+            onClick={() => setViewTab("ranking")}
+          >
+            Classificação desta prova
+          </button>
+        </div>
+
         <select className={`${field} mb-4 w-full max-w-full md:max-w-md`} value={eventId} onChange={(e) => setEventId(e.target.value)}>
           {events.map((e) => (
             <option key={e.id} value={e.id}>
@@ -166,10 +250,67 @@ export default function ResultsAdmin() {
           ))}
         </select>
 
-        {selectedEvent && (
+        {selectedEvent && viewTab === "entry" && (
           <p className="mb-4 max-w-2xl text-sm text-emerald-800 dark:text-emerald-400">{participantHint}</p>
         )}
 
+        {viewTab === "ranking" && (
+          <section className={`${panel} mb-8 p-4`}>
+            <h2 className="mb-3 font-semibold text-emerald-950 dark:text-emerald-50">Ranking da prova</h2>
+            {rankingRows.length === 0 ? (
+              <p className="text-sm app-muted">Sem resultados classificados ainda.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left" style={{ borderColor: "var(--border-color)" }}>
+                      <th className="py-2 pr-2">Pos</th>
+                      <th className="py-2 pr-2">Competidor</th>
+                      <th className="py-2 pr-2 text-right">Resultado</th>
+                      <th className="py-2 text-right">Pts</th>
+                      <th className="py-2 pl-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankingRows.map((r) => (
+                      <tr key={r.id} className="border-b" style={{ borderColor: "var(--border-color)" }}>
+                        <td className="py-2 pr-2 font-mono">
+                          {r.display_position ?? r.position ?? "—"}
+                          {r.is_tied && <span className="text-amber-600" title="Empate"> *</span>}
+                        </td>
+                        <td className="py-2 pr-2">{r.athlete_name || r.team_name}</td>
+                        <td className="py-2 pr-2 text-right font-mono">{r.formatted}</td>
+                        <td className="py-2 text-right">{r.points_earned}</td>
+                        <td className="py-2 pl-2 text-right">
+                          <button type="button" className={btnGhost} onClick={() => { setViewTab("entry"); startEdit(r); }}>
+                            Editar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {isTeamIndividual && (
+              <>
+                <h3 className="mt-6 mb-2 text-sm font-semibold">Resultados individuais</h3>
+                <ul className="space-y-1 text-sm">
+                  {results
+                    .filter((r) => r.athlete)
+                    .map((r) => (
+                      <li key={r.id}>
+                        {r.athlete_name}: {formatScore(r.raw_score, selectedEvent?.metric_type)}
+                      </li>
+                    ))}
+                </ul>
+              </>
+            )}
+          </section>
+        )}
+
+        {viewTab === "entry" && (
+        <>
         {editingId && (
           <p className="mb-3 rounded-lg border border-amber-300/60 bg-amber-100/50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
             Editando resultado existente. Ajuste os campos e salve, ou cancele.
@@ -181,6 +322,32 @@ export default function ResultsAdmin() {
           onSubmit={submit}
           className="mb-8 grid grid-cols-1 gap-3 rounded-xl border border-emerald-200/60 p-4 md:grid-cols-2 dark:border-emerald-800/40"
         >
+          {showTeamFilter && teams.length > 0 && (
+            <label className="block md:col-span-2">
+              <span className="mb-1 block text-sm font-medium text-emerald-800 dark:text-emerald-400">Filtrar por time</span>
+              <select className={field} value={filterTeamId} onChange={(e) => setFilterTeamId(e.target.value)}>
+                <option value="">— Todos os times —</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {showTeamFilter && !isTeamJoint && (
+            <label className="flex items-center gap-2 md:col-span-2">
+              <input
+                type="checkbox"
+                checked={jointTeamScore}
+                onChange={(e) => setJointTeamScore(e.target.checked)}
+                disabled={!filterTeamId}
+              />
+              <span className="text-sm text-emerald-800 dark:text-emerald-400">
+                Pontuação conjunta — mesmo valor para todos os atletas do time selecionado
+              </span>
+            </label>
+          )}
           {scoredByTeam ? (
             <label className="block md:col-span-2">
               <span className="mb-1 block text-sm font-medium text-emerald-800 dark:text-emerald-400">Time</span>
@@ -208,7 +375,7 @@ export default function ResultsAdmin() {
                 onChange={(e) => setForm({ ...form, athlete: e.target.value, team: "" })}
               >
                 <option value="">— Selecione o atleta —</option>
-                {athletes.map((a) => (
+                {filteredAthletes.map((a) => (
                   <option key={a.id} value={a.id}>
                     {athleteOptionLabel(a)}
                   </option>
@@ -239,6 +406,19 @@ export default function ResultsAdmin() {
               placeholder="Opcional"
               value={form.tiebreak_score}
               onChange={(e) => setForm({ ...form, tiebreak_score: e.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-emerald-800 dark:text-emerald-400">
+              Posição manual (desempate)
+            </span>
+            <input
+              className={field}
+              type="number"
+              min={1}
+              placeholder="Opcional — sobrescreve posição automática"
+              value={form.position_override}
+              onChange={(e) => setForm({ ...form, position_override: e.target.value })}
             />
           </label>
           <input
@@ -338,6 +518,8 @@ export default function ResultsAdmin() {
             </li>
           ))}
         </ul>
+        </>
+        )}
       </div>
     </AdminShell>
   );

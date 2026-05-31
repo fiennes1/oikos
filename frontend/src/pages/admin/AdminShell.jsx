@@ -10,7 +10,7 @@ const nav = [
   ["Atletas", "/admin/atletas"],
   ["Times", "/admin/times"],
   ["Provas", "/admin/provas"],
-  ["Heats", "/admin/heats"],
+  ["Baterias", "/admin/heats"],
   ["Resultados", "/admin/resultados"],
   ["Pontos", "/admin/pontos"],
 ];
@@ -62,7 +62,7 @@ export default function AdminShell({ title, children }) {
             onClick={closeMenu}
             className="inline-block shrink-0 rounded outline-none ring-2 ring-transparent focus-visible:ring-[color:var(--accent)]"
           >
-            <AppLogo frame="aside" alt="Oikos" />
+            <AppLogo frame="aside" alt="Oikos" variant="admin" />
           </Link>
           <div className="flex items-center justify-between gap-2">
             <p className="font-display text-sm uppercase tracking-wider app-muted">Painel</p>
@@ -91,7 +91,7 @@ export default function AdminShell({ title, children }) {
       <div className="admin-content admin-content-area">
         <header className="mb-4 flex items-center justify-between gap-3 border-b pb-4 md:hidden" style={{ borderColor: "var(--border-color)" }}>
           <Link to="/" className="shrink-0 outline-none ring-2 ring-transparent focus-visible:ring-[color:var(--accent)]" onClick={closeMenu}>
-            <AppLogo frame="asideMobile" alt="Oikos" />
+            <AppLogo frame="asideMobile" alt="Oikos" variant="admin" />
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <button

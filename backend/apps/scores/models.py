@@ -5,10 +5,11 @@ from apps.events.models import Event
 
 
 class MetricType(models.TextChoices):
-    SECONDS = "seconds", "Tempo (segundos)"
+    SECONDS = "seconds", "Tempo (segundos/minutos)"
     REPS = "reps", "Repetições"
-    KG = "kg", "Quilogramas"
-    POINTS = "points", "Pontos"
+    ROUNDS_REPS = "rounds_reps", "Rounds + repetições"
+    KG = "kg", "Carga (kg/lb)"
+    POINTS = "points", "Pontos diretos"
 
 
 class ScoreConfig(models.Model):
@@ -114,6 +115,12 @@ class Result(models.Model):
         blank=True,
     )
     position = models.PositiveIntegerField("posição calculada", null=True, blank=True)
+    position_override = models.PositiveIntegerField(
+        "posição manual (desempate)",
+        null=True,
+        blank=True,
+        help_text="Se preenchido, substitui a posição calculada automaticamente.",
+    )
     points_earned = models.PositiveIntegerField("pontos ganhos", default=0)
     notes = models.TextField("observações", blank=True)
 

@@ -2,25 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
 import PublicNav from "../../components/PublicNav.jsx";
-
-const DEFAULT_CATS = ["Rx", "Scaled", "Masters", "Team"];
+import { formatScore } from "../../utils/formatScore.js";
 
 export default function EventResults() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [comp, setComp] = useState(null);
-  const [activeCat, setActiveCat] = useState("Rx");
 
   const load = () => {
     axios
       .get(`/api/public/events/${id}/results/`)
-      .then((r) => {
-        setData(r.data);
-        const ec = r.data?.event?.eligible_category;
-        if (ec && (DEFAULT_CATS.includes(ec) || ec === "Team")) {
-          setActiveCat(ec);
-        }
-      })
+      .then((r) => setData(r.data))
       .catch(() => setData(null));
   };
 
@@ -34,14 +26,19 @@ export default function EventResults() {
     return () => clearInterval(t);
   }, [id]);
 
-  const categories = comp?.active_categories?.length ? comp.active_categories : DEFAULT_CATS;
-
-  const filteredResults = useMemo(() => {
+  const results = useMemo(() => {
     const rows = data?.results || [];
-    return rows.filter((r) => (r.entry_category || "").toString() === activeCat);
-  }, [data?.results, activeCat]);
+    return [...rows].sort((a, b) => {
+      const pa = a.display_position ?? a.position ?? 9999;
+      const pb = b.display_position ?? b.position ?? 9999;
+      return pa - pb;
+    });
+  }, [data?.results]);
 
-  const eventEligible = data?.event?.eligible_category;
+  const individualResults = useMemo(() => data?.individual_results || [], [data?.individual_results]);
+  const teamIndividualMode = data?.scoring_mode === "team_with_individual";
+
+  const metric = data?.event?.metric_type || "seconds";
 
   if (!data) {
     return (
@@ -61,53 +58,29 @@ export default function EventResults() {
             ← Início
           </Link>
           <span className="app-muted">|</span>
+          <Link to="/baterias" className="app-link font-medium">
+            Baterias
+          </Link>
+          <span className="app-muted">|</span>
           <Link to="/cronograma" className="app-link font-medium">
             Cronograma
           </Link>
         </div>
 
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="tag-category font-bold">Prova · categoria base: {eventEligible}</span>
-        </div>
         <h1 className="mb-2 app-title-page">{data.event?.name}</h1>
         {data.event?.description && <p className="mb-6 max-w-3xl text-sm app-muted">{data.event.description}</p>}
 
         <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-          Participantes por categoria
+          Classificação desta prova
         </h2>
         <p className="mb-4 text-sm app-muted">
-          Só a categoria correspondente à prova contém resultados lançados. Nas outras abas não há dados para esta prova.
+          {teamIndividualMode || comp?.mode === "team"
+            ? "Ranking por time nesta prova."
+            : "Ranking desta prova."}{" "}
+          Atualização a cada 30s.
         </p>
 
-        <div className="mb-6 flex flex-wrap gap-2">
-          {categories.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setActiveCat(c)}
-              className={`btn-filter ${activeCat === c ? "btn-filter-active" : ""}`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {activeCat !== eventEligible ? (
-          <div
-            className="rounded-2xl border p-6"
-            style={{
-              borderColor: "var(--border-color)",
-              backgroundColor: "color-mix(in srgb, var(--accent) 12%, var(--bg-card))",
-              color: "var(--text-primary)",
-            }}
-          >
-            <p className="font-medium">Esta prova é exclusiva da categoria {eventEligible}.</p>
-            <p className="mt-2 text-sm app-muted">Não há classificação de {activeCat} neste WOD.</p>
-            <Link to={`/?category=${encodeURIComponent(eventEligible)}`} className="mt-4 inline-block font-semibold app-link">
-              Abrir classificação geral ({eventEligible}) →
-            </Link>
-          </div>
-        ) : filteredResults.length === 0 ? (
+        {results.length === 0 ? (
           <p className="app-card rounded-xl p-8 text-center app-muted">Ainda não há resultados lançados nesta prova.</p>
         ) : (
           <div className="table-panel">
@@ -116,14 +89,21 @@ export default function EventResults() {
                 <tr>
                   <th className="px-4 py-2 text-left">Pos</th>
                   <th className="px-4 py-2 text-left">Competidor</th>
-                  <th className="px-4 py-2 text-right">Valor</th>
+                  <th className="px-4 py-2 text-right">Resultado</th>
                   <th className="px-4 py-2 text-right">Pts</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredResults.map((r) => (
+                {results.map((r) => (
                   <tr key={r.id} className="table-row">
-                    <td className="px-4 py-2 rank-cell">{r.position}</td>
+                    <td className="px-4 py-2 rank-cell">
+                      {r.display_position ?? r.position ?? "—"}
+                      {r.is_tied && (
+                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400" title="Empate — aguardando decisão">
+                          *
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2">
                       {r.athlete ? (
                         <Link className="app-link font-medium" to={`/atleta/${r.athlete}`}>
@@ -133,7 +113,7 @@ export default function EventResults() {
                         <span style={{ color: "var(--text-primary)" }}>{r.team_name}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-right font-mono app-muted">{r.raw_score}</td>
+                    <td className="px-4 py-2 text-right font-mono app-muted">{formatScore(r.raw_score, metric)}</td>
                     <td className="px-4 py-2 text-right" style={{ color: "var(--text-primary)" }}>
                       {r.points_earned}
                     </td>
@@ -142,6 +122,36 @@ export default function EventResults() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {teamIndividualMode && individualResults.length > 0 && (
+          <>
+            <h2 className="mt-10 mb-3 text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+              Resultados individuais por atleta
+            </h2>
+            <div className="table-panel">
+              <table className="w-full text-sm">
+                <thead className="table-head">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Atleta</th>
+                    <th className="px-4 py-2 text-right">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {individualResults.map((r) => (
+                    <tr key={r.id} className="table-row">
+                      <td className="px-4 py-2">
+                        <Link className="app-link font-medium" to={`/atleta/${r.athlete}`}>
+                          {r.athlete_name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono app-muted">{formatScore(r.raw_score, metric)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </main>
     </div>

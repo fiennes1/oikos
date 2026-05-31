@@ -7,10 +7,31 @@ import { btn, field, row } from "../../ui/classes.js";
 const ORDER_HINT =
   "Não é tempo nem duração da prova. É a ordem para exibir esta prova nas listas e no cronograma (menor número tende a aparecer antes quando não há horário definido). Use 0, 1, 2… para sequenciar os WODs.";
 
+const METRIC_OPTIONS = [
+  { value: "seconds", label: "⏱ Tempo (seg/min)" },
+  { value: "reps", label: "🔁 Repetições" },
+  { value: "rounds_reps", label: "🔄 Rounds + reps" },
+  { value: "kg", label: "⚖️ Carga (kg)" },
+  { value: "points", label: "🏆 Pontos diretos" },
+];
+
+function defaultMetricForEventType(eventType) {
+  const map = { for_time: "seconds", amrap: "reps", max_load: "kg", max_reps: "reps", points: "points", tiebreak: "seconds" };
+  return map[eventType] || "seconds";
+}
+
+function defaultScoreModeForMetric(metric) {
+  return metric === "seconds" ? "lower_is_better" : "higher_is_better";
+}
+
 const emptyEditForm = () => ({
   name: "",
   event_type: "for_time",
   scored_by: "athlete",
+  metric_type: "seconds",
+  score_mode: "lower_is_better",
+  team_scoring_format: "joint",
+  team_aggregate_method: "sum",
   eligibleCategoryId: "",
   display_order: 0,
   location: "",
@@ -26,6 +47,10 @@ export default function EventsAdmin() {
     name: "",
     event_type: "for_time",
     scored_by: "athlete",
+    metric_type: "seconds",
+    score_mode: "lower_is_better",
+    team_scoring_format: "joint",
+    team_aggregate_method: "sum",
     eligibleCategoryId: "",
     display_order: 0,
     location: "",
@@ -84,6 +109,10 @@ export default function EventsAdmin() {
       name: form.name,
       event_type: form.event_type,
       scored_by: form.scored_by || "athlete",
+      metric_type: form.metric_type,
+      score_mode: form.score_mode,
+      team_scoring_format: form.team_scoring_format,
+      team_aggregate_method: form.team_aggregate_method,
       display_order: Number(form.display_order),
       location: form.location || "",
       eligible_category_ids,
@@ -103,6 +132,10 @@ export default function EventsAdmin() {
       name: ev.name,
       event_type: ev.event_type,
       scored_by: ev.scored_by || "athlete",
+      metric_type: ev.metric_type || defaultMetricForEventType(ev.event_type),
+      score_mode: ev.score_mode || defaultScoreModeForMetric(ev.metric_type),
+      team_scoring_format: ev.team_scoring_format || "joint",
+      team_aggregate_method: ev.team_aggregate_method || "sum",
       display_order: ev.display_order,
       location: ev.location || "",
       eligibleCategoryId: cats.length === 1 ? String(cats[0].id) : "",
@@ -122,6 +155,10 @@ export default function EventsAdmin() {
       name: editForm.name,
       event_type: editForm.event_type,
       scored_by: editForm.scored_by || "athlete",
+      metric_type: editForm.metric_type,
+      score_mode: editForm.score_mode,
+      team_scoring_format: editForm.team_scoring_format,
+      team_aggregate_method: editForm.team_aggregate_method,
       display_order: Number(editForm.display_order),
       location: editForm.location || "",
       eligible_category_ids,
@@ -147,6 +184,53 @@ export default function EventsAdmin() {
 
   const btnGhost =
     "min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors border-[color:var(--border-color)] text-[color:var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/10";
+
+  const metricFields = (values, setValues) => (
+    <>
+      <select
+        className={field}
+        value={values.metric_type}
+        onChange={(e) => {
+          const metric_type = e.target.value;
+          setValues({ ...values, metric_type, score_mode: defaultScoreModeForMetric(metric_type) });
+        }}
+      >
+        {METRIC_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <select className={field} value={values.score_mode} onChange={(e) => setValues({ ...values, score_mode: e.target.value })}>
+        <option value="lower_is_better">Menor valor = melhor</option>
+        <option value="higher_is_better">Maior valor = melhor</option>
+      </select>
+      {values.scored_by === "team" && (
+        <>
+          <select
+            className={field}
+            value={values.team_scoring_format}
+            onChange={(e) => setValues({ ...values, team_scoring_format: e.target.value })}
+          >
+            <option value="joint">Pontuação conjunta (um resultado por time)</option>
+            <option value="individual">Cada atleta pontua (agrega no time)</option>
+          </select>
+          {values.team_scoring_format === "individual" && (
+            <select
+              className={field}
+              value={values.team_aggregate_method}
+              onChange={(e) => setValues({ ...values, team_aggregate_method: e.target.value })}
+            >
+              <option value="sum">Agregação: soma</option>
+              <option value="average">Agregação: média</option>
+              <option value="best">Agregação: melhor resultado</option>
+              <option value="manual">Agregação: manual</option>
+            </select>
+          )}
+        </>
+      )}
+    </>
+  );
 
   return (
     <AdminShell title="Provas (WODs)">
@@ -187,7 +271,10 @@ export default function EventsAdmin() {
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           required
         />
-        <select className={field} value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })}>
+        <select className={field} value={form.event_type} onChange={(e) => {
+          const event_type = e.target.value;
+          setForm({ ...form, event_type, metric_type: defaultMetricForEventType(event_type), score_mode: defaultScoreModeForMetric(defaultMetricForEventType(event_type)) });
+        }}>
           <option value="for_time">For Time</option>
           <option value="amrap">AMRAP</option>
           <option value="max_load">Max Load</option>
@@ -197,6 +284,7 @@ export default function EventsAdmin() {
           <option value="athlete">Pontuação por atleta</option>
           <option value="team">Pontuação por time</option>
         </select>
+        {metricFields(form, setForm)}
         <select
           className={field}
           value={form.eligibleCategoryId}
@@ -247,7 +335,10 @@ export default function EventsAdmin() {
                   onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                   required
                 />
-                <select className={field} value={editForm.event_type} onChange={(e) => setEditForm({ ...editForm, event_type: e.target.value })}>
+                <select className={field} value={editForm.event_type} onChange={(e) => {
+                  const event_type = e.target.value;
+                  setEditForm({ ...editForm, event_type, metric_type: defaultMetricForEventType(event_type), score_mode: defaultScoreModeForMetric(defaultMetricForEventType(event_type)) });
+                }}>
                   <option value="for_time">For Time</option>
                   <option value="amrap">AMRAP</option>
                   <option value="max_load">Max Load</option>
@@ -261,6 +352,7 @@ export default function EventsAdmin() {
                   <option value="athlete">Pontuação por atleta</option>
                   <option value="team">Pontuação por time</option>
                 </select>
+                {metricFields(editForm, setEditForm)}
                 <select
                   className={field}
                   value={editForm.eligibleCategoryId}
@@ -312,7 +404,9 @@ export default function EventsAdmin() {
                 <div className="min-w-0 flex-1">
                   <span className="font-medium leading-snug text-emerald-950 dark:text-emerald-50">{ev.name}</span>
                   <span className="mt-1 block text-xs text-emerald-800 dark:text-emerald-500 md:text-sm">
-                    {ev.event_type} · {ev.scored_by === "team" ? "por time" : "por atleta"} · {eventCategoryLabel(ev)}
+                    {ev.event_type} · {ev.scored_by === "team" ? "por time" : "por atleta"}
+                    {ev.metric_type ? ` · ${METRIC_OPTIONS.find((m) => m.value === ev.metric_type)?.label || ev.metric_type}` : ""}
+                    · {eventCategoryLabel(ev)}
                   </span>
                 </div>
                 <div className="flex w-full shrink-0 flex-wrap justify-end gap-2 md:w-auto">

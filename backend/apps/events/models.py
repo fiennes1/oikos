@@ -156,6 +156,18 @@ class Category(models.Model):
         super().save(*args, **kwargs)
 
 
+class TeamScoringFormat(models.TextChoices):
+    JOINT = "joint", "Pontuação conjunta (um resultado para o time)"
+    INDIVIDUAL = "individual", "Cada atleta pontua; time agrega depois"
+
+
+class TeamAggregateMethod(models.TextChoices):
+    SUM = "sum", "Soma dos atletas"
+    AVERAGE = "average", "Média dos atletas"
+    BEST = "best", "Melhor resultado do time"
+    MANUAL = "manual", "Admin define manualmente"
+
+
 class Event(models.Model):
     objects = _CascadeMuteQuerySet.as_manager()
 
@@ -184,6 +196,32 @@ class Event(models.Model):
         max_length=10,
         choices=ScoredBy.choices,
         default=ScoredBy.ATHLETE,
+    )
+    metric_type = models.CharField(
+        "tipo de métrica",
+        max_length=20,
+        choices=[
+            ("seconds", "Tempo"),
+            ("reps", "Repetições"),
+            ("rounds_reps", "Rounds + reps"),
+            ("kg", "Carga"),
+            ("points", "Pontos"),
+        ],
+        default="seconds",
+        blank=True,
+    )
+    team_scoring_format = models.CharField(
+        "formato em provas de time",
+        max_length=12,
+        choices=TeamScoringFormat.choices,
+        default=TeamScoringFormat.JOINT,
+        help_text="Conjunta: um lançamento por time. Individual: cada atleta + agregação.",
+    )
+    team_aggregate_method = models.CharField(
+        "agregação do time",
+        max_length=12,
+        choices=TeamAggregateMethod.choices,
+        default=TeamAggregateMethod.SUM,
     )
     scheduled_at = models.DateTimeField("data e hora", null=True, blank=True)
     location = models.CharField("local/estação", max_length=200, blank=True)
@@ -247,7 +285,8 @@ class HeatSchedule(models.Model):
         related_name="heat_schedules",
         verbose_name="time",
     )
-    heat_number = models.PositiveIntegerField("número do heat", default=1)
+    heat_number = models.PositiveIntegerField("número do heat / bateria", default=1)
+    lane_number = models.PositiveIntegerField("raia", default=1)
     scheduled_time = models.DateTimeField("horário previsto", null=True, blank=True)
     status = models.CharField(
         "status",
@@ -257,7 +296,7 @@ class HeatSchedule(models.Model):
     )
 
     class Meta:
-        ordering = ["event", "heat_number", "scheduled_time"]
+        ordering = ["event", "heat_number", "lane_number", "scheduled_time"]
         verbose_name = "Heat (cronograma)"
         verbose_name_plural = "Heats (cronograma)"
         constraints = [

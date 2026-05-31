@@ -1,5 +1,5 @@
-import logoForLightBg from "../oks_escuro.png";
-import logoForDarkBg from "../oks_claro.png";
+import logoClaro from "../oks_claro.png";
+import logoEscuro from "../oks_escuro.png";
 import { useThemeStore } from "../store/theme.js";
 
 const FRAME_CLASS = {
@@ -8,13 +8,19 @@ const FRAME_CLASS = {
   nav: "app-logo-frame--nav",
 };
 
+const LOGO_BY_VARIANT = {
+  public: { light: logoClaro, dark: logoEscuro },
+  admin: { light: logoEscuro, dark: logoClaro },
+};
+
 /**
- * Tema claro → oks_escuro; tema escuro → oks_claro.
- * Tamanhos fixos (altura + largura em calc) para a caixa ser idêntica em qualquer tema.
+ * Público: claro → oks_claro, escuro → oks_escuro.
+ * Admin: claro → oks_escuro, escuro → oks_claro (fundo do painel).
  */
-export default function AppLogo({ frame = "aside", alt = "Oikos", className = "" }) {
+export default function AppLogo({ frame = "aside", alt = "Oikos", className = "", variant = "public" }) {
   const theme = useThemeStore((s) => s.theme);
-  const src = theme === "dark" ? logoForDarkBg : logoForLightBg;
+  const pair = LOGO_BY_VARIANT[variant] ?? LOGO_BY_VARIANT.public;
+  const src = theme === "dark" ? pair.dark : pair.light;
   const fc = FRAME_CLASS[frame] ?? FRAME_CLASS.aside;
 
   return (

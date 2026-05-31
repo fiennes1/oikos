@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../../api/client.js";
 import AdminShell from "./AdminShell.jsx";
+import BrDateInput from "../../components/BrDateInput.jsx";
 import { btn, field } from "../../ui/classes.js";
 
 function splitCategories(ac) {
@@ -128,11 +129,11 @@ export default function CompetitionAdmin() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <label className="flex-1 text-sm text-emerald-800 dark:text-emerald-400">
             Início
-            <input type="date" className={wide} value={edit.start_date} onChange={(e) => setEdit({ ...edit, start_date: e.target.value })} />
+            <BrDateInput className={wide} value={edit.start_date} onChange={(v) => setEdit({ ...edit, start_date: v })} />
           </label>
           <label className="flex-1 text-sm text-emerald-800 dark:text-emerald-400">
             Fim
-            <input type="date" className={wide} value={edit.end_date} onChange={(e) => setEdit({ ...edit, end_date: e.target.value })} />
+            <BrDateInput className={wide} value={edit.end_date} onChange={(v) => setEdit({ ...edit, end_date: v })} />
           </label>
         </div>
         <label className="block text-sm text-emerald-800 dark:text-emerald-400">

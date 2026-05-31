@@ -5,6 +5,7 @@ import ThemeToggle from "./ThemeToggle.jsx";
 
 const links = [
   ["/", "Leaderboard"],
+  ["/baterias", "Baterias"],
   ["/cronograma", "Cronograma"],
   ["/admin/login", "Admin"],
 ];

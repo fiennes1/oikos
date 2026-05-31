@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import PublicNav from "../../components/PublicNav.jsx";
+import { formatDateBR, formatDateTimeBR } from "../../utils/formatDate.js";
 
 const REFRESH_MS = 30_000;
 
@@ -99,6 +100,10 @@ export default function Home() {
     [schedule.events],
   );
 
+  const isMixed = comp?.mode === "mixed" || data?.mode === "mixed";
+  const teamRows = isMixed && data?.rows?.team ? data.rows.team : !isMixed && comp?.mode === "team" ? data?.rows : null;
+  const individualRows = isMixed && data?.rows?.individual ? data.rows.individual : !isMixed && comp?.mode !== "team" ? data?.rows : null;
+
   const heatCountByEvent = useMemo(() => {
     const m = {};
     for (const h of schedule.heats || []) {
@@ -106,6 +111,85 @@ export default function Home() {
     }
     return m;
   }, [schedule.heats]);
+
+  function LeaderboardBlock({ title, rows }) {
+    if (!rows?.length) {
+      return (
+        <div className="table-panel mb-8">
+          <h3 className="border-b px-4 py-3 font-semibold" style={{ borderColor: "var(--border-color)", color: "var(--text-primary)" }}>
+            {title}
+          </h3>
+          <p className="p-8 text-center app-muted">Nenhum resultado ainda.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="table-panel mb-8">
+        <h3 className="border-b px-4 py-3 font-semibold" style={{ borderColor: "var(--border-color)", color: "var(--text-primary)" }}>
+          {title}
+        </h3>
+        <div className="space-y-3 p-4 md:hidden">
+          {rows.map((row) => (
+            <div key={`${row.type}-${row.id}-m`} className="app-card rounded-xl p-4 shadow-sm">
+              <div className="flex gap-3">
+                <span className="rank-cell w-10 shrink-0">{row.overall_rank}</span>
+                <div className="min-w-0 flex-1">
+                  {row.type === "athlete" ? (
+                    <Link to={`/atleta/${row.id}`} className="font-semibold app-link">
+                      {row.nickname || row.name}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {row.name}
+                    </span>
+                  )}
+                  {row.team_name && <span className="mt-0.5 block truncate text-sm app-muted">{row.team_name}</span>}
+                </div>
+              </div>
+              <p className="mt-3 text-sm app-muted">
+                <span className="font-mono font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {row.total_points} pts
+                </span>
+                {" · "}
+                {row.wins} vitória(s)
+              </p>
+            </div>
+          ))}
+        </div>
+        <table className="hidden w-full text-left text-sm md:table">
+          <thead className="table-head">
+            <tr>
+              <th className="px-4 py-3">#</th>
+              <th className="px-4 py-3">Atleta / Time</th>
+              <th className="px-4 py-3 text-right">Pts</th>
+              <th className="px-4 py-3 text-right">Vitórias</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.type}-${row.id}`} className="table-row animate-[fadeIn_0.4s_ease]">
+                <td className="w-14 px-4 py-3 rank-cell">{row.overall_rank}</td>
+                <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
+                  {row.type === "athlete" ? (
+                    <Link to={`/atleta/${row.id}`} className="font-semibold app-link">
+                      {row.nickname || row.name}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold">{row.name}</span>
+                  )}
+                  {row.team_name && <span className="ml-2 text-xs app-muted">({row.team_name})</span>}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-lg" style={{ color: "var(--text-primary)" }}>
+                  {row.total_points}
+                </td>
+                <td className="px-4 py-3 text-right app-muted">{row.wins}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -116,7 +200,7 @@ export default function Home() {
           <h1 className="app-title-page">{comp?.name || "Leaderboard"}</h1>
           {comp && (
             <p className="mt-1 app-muted">
-              {comp.start_date} — {comp.end_date} · atualização a cada 30s
+              {formatDateBR(comp.start_date)} — {formatDateBR(comp.end_date)} · atualização a cada 30s
             </p>
           )}
         </header>
@@ -124,7 +208,7 @@ export default function Home() {
         <section className="mb-14">
           <h2 className="app-heading-section">Provas</h2>
           <p className="mb-6 max-w-2xl text-sm app-muted">
-            Clique em uma prova para ver a classificação e os participantes por categoria.
+            Clique em uma prova para ver a classificação desta prova (não o ranking geral).
           </p>
           {sortedEvents.length === 0 ? (
             <p className="app-card rounded-xl border-dashed p-8 text-center app-muted">Nenhuma prova cadastrada ainda.</p>
@@ -148,12 +232,12 @@ export default function Home() {
                   </h3>
                   {(ev.scheduled_at || ev.location) && (
                     <p className="mt-2 truncate text-xs app-muted">
-                      {ev.scheduled_at && <span>{String(ev.scheduled_at).replace("T", " ").slice(0, 16)}</span>}
+                      {ev.scheduled_at && <span>{formatDateTimeBR(ev.scheduled_at)}</span>}
                       {ev.scheduled_at && ev.location && " · "}
                       {ev.location}
                     </p>
                   )}
-                  <p className="app-link mt-3 inline-flex min-h-11 items-center text-sm font-medium">Ver participantes e ranking →</p>
+                  <p className="app-link mt-3 inline-flex min-h-11 items-center text-sm font-medium">Ver classificação desta prova →</p>
                   {(heatCountByEvent[ev.id] ?? 0) > 0 && (
                     <p className="mt-1 text-xs app-muted">{heatCountByEvent[ev.id]} heat(s)</p>
                   )}
@@ -167,6 +251,7 @@ export default function Home() {
           <h2 className="app-heading-section">Classificação geral</h2>
           <p className="mb-4 text-sm app-muted">Soma de pontos em todas as provas da competição.</p>
 
+          {!isMixed && cats.length > 0 && (
           <div className="-mx-4 mb-6 overflow-x-auto px-4 scrollbar-hide md:mx-0 md:overflow-visible md:px-0">
             <div className="flex w-max min-w-full gap-2 pb-1 md:flex-wrap md:pb-0">
               {cats.map((tab) => (
@@ -181,76 +266,34 @@ export default function Home() {
               ))}
             </div>
           </div>
+          )}
 
-          <div className="table-panel">
-            {(!data?.rows || data.rows.length === 0) && (
-              <p className="p-8 text-center app-muted">Nenhum resultado nesta categoria ainda.</p>
-            )}
-            {data?.rows && data.rows.length > 0 && (
-              <>
-                <div className="space-y-3 p-4 md:hidden">
-                  {(data.rows || []).map((row) => (
-                    <div key={`${row.type}-${row.id}-m`} className="app-card rounded-xl p-4 shadow-sm">
-                      <div className="flex gap-3">
-                        <span className="rank-cell w-10 shrink-0">{row.overall_rank}</span>
-                        <div className="min-w-0 flex-1">
-                          {row.type === "athlete" ? (
-                            <Link to={`/atleta/${row.id}`} className="font-semibold app-link">
-                              {row.nickname || row.name}
-                            </Link>
-                          ) : (
-                            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                              {row.name}
-                            </span>
-                          )}
-                          {row.team_name && <span className="mt-0.5 block truncate text-sm app-muted">{row.team_name}</span>}
-                        </div>
-                      </div>
-                      <p className="mt-3 text-sm app-muted">
-                        <span className="font-mono font-semibold" style={{ color: "var(--text-primary)" }}>
-                          {row.total_points} pts
-                        </span>
-                        {" · "}
-                        {row.wins} vitória(s)
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <table className="hidden w-full text-left text-sm md:table">
-                  <thead className="table-head">
-                    <tr>
-                      <th className="px-4 py-3">#</th>
-                      <th className="px-4 py-3">Atleta / Time</th>
-                      <th className="px-4 py-3 text-right">Pts</th>
-                      <th className="px-4 py-3 text-right">Vitórias</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(data.rows || []).map((row) => (
-                      <tr key={`${row.type}-${row.id}`} className="table-row animate-[fadeIn_0.4s_ease]">
-                        <td className="w-14 px-4 py-3 rank-cell">{row.overall_rank}</td>
-                        <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
-                          {row.type === "athlete" ? (
-                            <Link to={`/atleta/${row.id}`} className="font-semibold app-link">
-                              {row.nickname || row.name}
-                            </Link>
-                          ) : (
-                            <span className="font-semibold">{row.name}</span>
-                          )}
-                          {row.team_name && <span className="ml-2 text-xs app-muted">({row.team_name})</span>}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-lg" style={{ color: "var(--text-primary)" }}>
-                          {row.total_points}
-                        </td>
-                        <td className="px-4 py-3 text-right app-muted">{row.wins}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            )}
+          {isMixed && cats.length > 0 && (
+          <div className="-mx-4 mb-6 overflow-x-auto px-4 scrollbar-hide md:mx-0 md:overflow-visible md:px-0">
+            <p className="mb-2 text-xs app-muted">Categoria (ranking individual):</p>
+            <div className="flex w-max min-w-full gap-2 pb-1 md:flex-wrap md:pb-0">
+              {cats.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setCatAndUrl(tab.key)}
+                  className={`btn-filter ${cat === tab.key ? "btn-filter-active" : ""}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
+          )}
+
+          {isMixed ? (
+            <>
+              <LeaderboardBlock title="Ranking por times" rows={teamRows} />
+              <LeaderboardBlock title="Ranking individual" rows={individualRows} />
+            </>
+          ) : (
+            <LeaderboardBlock title="Classificação" rows={teamRows || individualRows} />
+          )}
         </section>
       </main>
       <style>{`@keyframes fadeIn { from { opacity: 0.5; } to { opacity: 1; } }`}</style>
