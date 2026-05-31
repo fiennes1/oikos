@@ -14,7 +14,8 @@ env = environ.Env(
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
 SECRET_KEY = env("SECRET_KEY", default="dev-insecure-change-me")
-DEBUG = env("DEBUG", default=True)
+# Heroku (DYNO): DEBUG desligado por padrão; local dev continua True sem .env
+DEBUG = env.bool("DEBUG", default=not bool(os.environ.get("DYNO")))
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 if DEBUG and "testserver" not in ALLOWED_HOSTS:
@@ -82,7 +83,7 @@ if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.config(
             default=DATABASE_URL,
-            conn_max_age=600,
+            conn_max_age=env.int("CONN_MAX_AGE", default=60),
             ssl_require=ssl_require,
         )
     }
@@ -128,6 +129,17 @@ MEDIA_ROOT = BASE_DIR / "media"
 FRONTEND_INDEX = BASE_DIR.parent / "frontend" / "dist" / "index.html"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "oikos-leaderboard",
+        "OPTIONS": {"MAX_ENTRIES": 500},
+    }
+}
+
+# Segundos de cache para endpoints públicos (ranking, cronograma)
+PUBLIC_API_CACHE_SECONDS = env.int("PUBLIC_API_CACHE_SECONDS", default=120)
 
 CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",

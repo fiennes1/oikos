@@ -68,6 +68,12 @@ class ResultSerializer(serializers.ModelSerializer):
     def get_is_tied(self, obj):
         if obj.position is None:
             return False
+        tied_keys = self.context.get("tied_position_keys")
+        if tied_keys is not None:
+            return (obj.event_id, obj.position) in tied_keys
+        tied_positions = self.context.get("tied_positions")
+        if tied_positions is not None:
+            return obj.position in tied_positions
         return (
             Result.objects.filter(event_id=obj.event_id, position=obj.position)
             .exclude(pk=obj.pk)

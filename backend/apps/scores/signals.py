@@ -7,6 +7,8 @@ from django.dispatch import receiver
 from apps.scores.models import Result
 from apps.scores.services import recalculate_event_rankings
 
+from apps.leaderboard.cache_utils import bump_public_api_cache
+
 _local = threading.local()
 
 
@@ -30,6 +32,7 @@ def result_saved(sender, instance, **kwargs):
     if ranking_signals_muted():
         return
     recalculate_event_rankings(instance.event)
+    bump_public_api_cache()
 
 
 @receiver(post_delete, sender=Result)
@@ -37,3 +40,4 @@ def result_deleted(sender, instance, **kwargs):
     if ranking_signals_muted():
         return
     recalculate_event_rankings(instance.event)
+    bump_public_api_cache()

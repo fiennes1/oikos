@@ -13,7 +13,7 @@ from apps.events.serializers import (
 
 
 class ChampionshipViewSet(viewsets.ModelViewSet):
-    queryset = Championship.objects.all()
+    queryset = Championship.objects.prefetch_related("categories")
     serializer_class = ChampionshipSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
@@ -29,7 +29,7 @@ class ChampionshipViewSet(viewsets.ModelViewSet):
 
 
 class EventViewSet(viewsets.ModelViewSet):
-    queryset = Event.objects.select_related("competition")
+    queryset = Event.objects.select_related("competition").prefetch_related("eligible_categories")
     serializer_class = EventSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 

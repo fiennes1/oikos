@@ -2,7 +2,7 @@ import csv
 import io
 from decimal import Decimal, InvalidOperation
 
-from django.contrib.auth import get_user_model
+from django.db.models import Count
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -37,7 +37,7 @@ class PointsTableEntryViewSet(viewsets.ModelViewSet):
 
 
 class ResultViewSet(viewsets.ModelViewSet):
-    queryset = Result.objects.select_related("event", "athlete", "team")
+    queryset = Result.objects.select_related("event", "athlete", "athlete__category", "team")
     serializer_class = ResultSerializer
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
@@ -47,6 +47,19 @@ class ResultViewSet(viewsets.ModelViewSet):
         if eid:
             qs = qs.filter(event_id=eid)
         return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if self.action in ("list", "retrieve"):
+            qs = self.filter_queryset(self.get_queryset())
+            dupes = (
+                qs.exclude(position__isnull=True)
+                .values("event_id", "position")
+                .annotate(c=Count("id"))
+                .filter(c__gt=1)
+            )
+            ctx["tied_position_keys"] = {(row["event_id"], row["position"]) for row in dupes}
+        return ctx
 
     def perform_update(self, serializer):
         inst = serializer.instance

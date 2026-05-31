@@ -128,6 +128,12 @@ class Result(models.Model):
         ordering = ["event", "position"]
         verbose_name = "Resultado"
         verbose_name_plural = "Resultados"
+        indexes = [
+            models.Index(fields=["event"], name="scores_result_event_idx"),
+            models.Index(fields=["athlete"], name="scores_result_athlete_idx"),
+            models.Index(fields=["team"], name="scores_result_team_idx"),
+            models.Index(fields=["event", "position"], name="scores_result_event_pos_idx"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=(

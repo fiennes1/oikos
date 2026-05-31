@@ -299,6 +299,11 @@ class HeatSchedule(models.Model):
         ordering = ["event", "heat_number", "lane_number", "scheduled_time"]
         verbose_name = "Heat (cronograma)"
         verbose_name_plural = "Heats (cronograma)"
+        indexes = [
+            models.Index(fields=["event"], name="events_heat_event_idx"),
+            models.Index(fields=["event", "status"], name="events_heat_event_status_idx"),
+            models.Index(fields=["event", "heat_number"], name="events_heat_event_num_idx"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=(
