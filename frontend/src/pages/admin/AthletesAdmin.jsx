@@ -8,6 +8,7 @@ export default function AthletesAdmin() {
   const [championshipId, setChampionshipId] = useState("");
   const [categories, setCategories] = useState([]);
   const [rows, setRows] = useState([]);
+  const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({
     name: "",
     nickname: "",
@@ -29,7 +30,14 @@ export default function AthletesAdmin() {
 
   const loadAthletes = () => {
     if (!championshipId) return;
-    api.get("/admin/athletes/", { params: { championship: championshipId } }).then((r) => setRows(r.data));
+    setLoadError("");
+    api
+      .get("/admin/athletes/", { params: { championship: championshipId } })
+      .then((r) => setRows(Array.isArray(r.data) ? r.data : r.data?.results ?? []))
+      .catch(() => {
+        setRows([]);
+        setLoadError("Não foi possível carregar os atletas deste campeonato.");
+      });
   };
 
   useEffect(() => {
@@ -114,6 +122,12 @@ export default function AthletesAdmin() {
         <strong>Times</strong>.
       </p>
 
+      {loadError && (
+        <p className="mb-4 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+          {loadError}
+        </p>
+      )}
+
       <form onSubmit={create} className="mb-6 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4 lg:gap-x-2">
         <input className={`${field} lg:col-span-2`} placeholder="Nome" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className={field} placeholder="Apelido" value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} />
@@ -142,6 +156,9 @@ export default function AthletesAdmin() {
       </form>
 
       <ul className="space-y-2">
+        {rows.length === 0 && championshipId && !loadError && (
+          <li className="text-sm app-muted">Nenhum atleta neste campeonato. Use o formulário acima para cadastrar.</li>
+        )}
         {rows.map((a) => (
           <li key={a.id} className={`${row} bg-white/80 dark:bg-black/25`}>
             <span className="text-emerald-950 dark:text-emerald-100">
@@ -149,8 +166,10 @@ export default function AthletesAdmin() {
               <span className="text-sm app-muted">
                 {" "}
                 ({a.category_name || a.category_slug || "—"})
-                {a.team_detail?.name && (
-                  <span className="ml-2 rounded bg-black/10 px-1.5 py-0.5 text-xs dark:bg-white/10">Time: {a.team_detail.name}</span>
+                {(a.team_name || a.team_detail?.name) && (
+                  <span className="ml-2 rounded bg-black/10 px-1.5 py-0.5 text-xs dark:bg-white/10">
+                    Time: {a.team_name || a.team_detail?.name}
+                  </span>
                 )}
               </span>
             </span>

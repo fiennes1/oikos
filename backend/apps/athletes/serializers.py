@@ -42,14 +42,17 @@ class TeamSerializer(serializers.ModelSerializer):
         cid = team.championship_id
         desired_ids = []
         for a in athlete_list:
-            if a.championship_id != cid:
+            if a.championship_id is not None and a.championship_id != cid:
                 raise serializers.ValidationError(
                     {"athlete_ids": f'Atleta "{a.name}" não pertence ao mesmo campeonato do time.'}
                 )
             desired_ids.append(a.pk)
         Athlete.objects.filter(team=team).exclude(pk__in=desired_ids).update(team=None)
         for a in athlete_list:
-            Athlete.objects.filter(pk=a.pk).update(team_id=team.pk)
+            updates = {"team_id": team.pk}
+            if team.championship_id and a.championship_id != team.championship_id:
+                updates["championship_id"] = team.championship_id
+            Athlete.objects.filter(pk=a.pk).update(**updates)
 
     def create(self, validated_data):
         athletes = validated_data.pop("athlete_ids", None)
@@ -90,8 +93,21 @@ class AthleteSerializer(serializers.ModelSerializer):
 
 
 class AthleteListSerializer(serializers.ModelSerializer):
-    category_slug = serializers.CharField(source="category.slug", read_only=True)
+    category_name = serializers.CharField(source="category.name", read_only=True, allow_null=True)
+    category_slug = serializers.CharField(source="category.slug", read_only=True, allow_null=True)
+    team_name = serializers.CharField(source="team.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Athlete
-        fields = ("id", "name", "nickname", "category", "category_slug", "photo", "team")
+        fields = (
+            "id",
+            "championship",
+            "name",
+            "nickname",
+            "category",
+            "category_name",
+            "category_slug",
+            "photo",
+            "team",
+            "team_name",
+        )
