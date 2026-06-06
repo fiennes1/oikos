@@ -18,10 +18,13 @@ function athleteOptionLabel(a) {
 }
 
 export default function ResultsAdmin() {
+  const [comps, setComps] = useState([]);
+  const [compId, setCompId] = useState("");
   const [events, setEvents] = useState([]);
   const [eventId, setEventId] = useState("");
   const [athletes, setAthletes] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [loadError, setLoadError] = useState("");
   const [results, setResults] = useState([]);
   const [form, setForm] = useState({
     athlete: "",
@@ -39,35 +42,60 @@ export default function ResultsAdmin() {
   const [preview, setPreview] = useState(null);
 
   useEffect(() => {
-    api.get("/admin/events/wods/").then((r) => {
-      setEvents(r.data);
-      if (r.data[0]) setEventId(String(r.data[0].id));
+    api.get("/admin/competitions/").then((r) => {
+      setComps(r.data);
+      const active = r.data.find((c) => c.is_active) || r.data[0];
+      if (active && !compId) setCompId(String(active.id));
     });
   }, []);
+
+  useEffect(() => {
+    if (!compId) {
+      setEvents([]);
+      setEventId("");
+      return;
+    }
+    api.get("/admin/events/wods/").then((r) => {
+      const list = r.data.filter((e) => String(e.competition) === compId);
+      setEvents(list);
+      if (!eventId && list[0]) setEventId(String(list[0].id));
+      else if (eventId && !list.some((e) => String(e.id) === eventId)) {
+        setEventId(list[0] ? String(list[0].id) : "");
+      }
+    });
+  }, [compId]);
 
   const selectedEvent = useMemo(() => events.find((e) => String(e.id) === eventId), [events, eventId]);
 
   useEffect(() => {
-    const cid = selectedEvent?.competition;
-    if (!cid) {
+    if (!compId) {
       setAthletes([]);
       setTeams([]);
       return;
     }
     let cancelled = false;
+    setLoadError("");
     Promise.all([
-      api.get("/admin/athletes/", { params: { championship: cid } }),
-      api.get("/admin/teams/", { params: { championship: cid } }),
-    ]).then(([ra, rt]) => {
-      if (!cancelled) {
-        setAthletes(ra.data);
-        setTeams(rt.data);
-      }
-    });
+      api.get("/admin/athletes/", { params: { championship: compId } }),
+      api.get("/admin/teams/", { params: { championship: compId } }),
+    ])
+      .then(([ra, rt]) => {
+        if (!cancelled) {
+          setAthletes(Array.isArray(ra.data) ? ra.data : ra.data?.results ?? []);
+          setTeams(Array.isArray(rt.data) ? rt.data : rt.data?.results ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAthletes([]);
+          setTeams([]);
+          setLoadError("Não foi possível carregar atletas/times deste campeonato.");
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [selectedEvent?.competition]);
+  }, [compId]);
 
   useEffect(() => {
     setEditingId(null);
@@ -223,6 +251,26 @@ export default function ResultsAdmin() {
   return (
     <AdminShell title="Lançamento de Resultados">
       <div className="admin-results-pad">
+        {comps.length > 1 && (
+          <label className="mb-4 block w-full max-w-full md:max-w-md">
+            <span className="mb-1 block text-sm font-medium text-emerald-800 dark:text-emerald-400">Campeonato</span>
+            <select className={field} value={compId} onChange={(e) => setCompId(e.target.value)}>
+              {comps.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.is_active ? " (ativo)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {loadError && (
+          <p className="mb-4 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+            {loadError}
+          </p>
+        )}
+
         <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -243,11 +291,15 @@ export default function ResultsAdmin() {
         </div>
 
         <select className={`${field} mb-4 w-full max-w-full md:max-w-md`} value={eventId} onChange={(e) => setEventId(e.target.value)}>
-          {events.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
+          {events.length === 0 ? (
+            <option value="">— Nenhuma prova neste campeonato —</option>
+          ) : (
+            events.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))
+          )}
         </select>
 
         {selectedEvent && viewTab === "entry" && (
@@ -364,6 +416,11 @@ export default function ResultsAdmin() {
                   </option>
                 ))}
               </select>
+              {teams.length === 0 && compId && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  Nenhum time cadastrado neste campeonato. Cadastre em Admin → Times.
+                </p>
+              )}
             </label>
           ) : (
             <label className="block md:col-span-2">
