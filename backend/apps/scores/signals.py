@@ -42,6 +42,11 @@ def _enqueue_recalculate(event_id: int) -> None:
     transaction.on_commit(start_background_recalc)
 
 
+def enqueue_event_rankings_recalculate(event_id: int) -> None:
+    """Dispara recálculo de posições/pontos após alteração na configuração da prova."""
+    _enqueue_recalculate(event_id)
+
+
 @receiver(post_save, sender=Result)
 def result_saved(sender, instance, **kwargs):
     if ranking_signals_muted():

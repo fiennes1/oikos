@@ -99,12 +99,19 @@ class EventSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         cat_ids = validated_data.pop("eligible_category_ids", _MISSING)
+        categories_changed = cat_ids is not _MISSING and set(cat_ids) != set(
+            instance.eligible_categories.values_list("pk", flat=True)
+        )
         instance = super().update(instance, validated_data)
         if cat_ids is not _MISSING:
             instance.eligible_categories.set(
                 Category.objects.filter(pk__in=cat_ids, championship_id=instance.competition_id)
             )
         self._sync_legacy_eligible_category(instance)
+        if categories_changed:
+            from apps.scores.signals import enqueue_event_rankings_recalculate
+
+            enqueue_event_rankings_recalculate(instance.pk)
         return instance
 
 
