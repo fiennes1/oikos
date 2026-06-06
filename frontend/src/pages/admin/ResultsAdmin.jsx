@@ -213,9 +213,15 @@ export default function ResultsAdmin() {
     const row = results.find((x) => x.id === id);
     const label = row?.athlete_name || row?.team_name || "este resultado";
     if (!confirm(`Excluir o resultado de ${label}?`)) return;
-    await api.delete(`/admin/scores/results/${id}/`);
-    if (editingId === id) cancelEdit();
-    await refreshResults();
+    try {
+      await api.delete(`/admin/scores/results/${id}/`);
+      if (editingId === id) cancelEdit();
+      setResults((prev) => prev.filter((r) => r.id !== id));
+      await refreshResults();
+    } catch {
+      alert("Não foi possível excluir o resultado. Tente novamente.");
+      await refreshResults();
+    }
   }
 
   async function doPreview() {

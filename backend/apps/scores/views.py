@@ -14,6 +14,7 @@ from apps.scores.serializers import (
     ResultSerializer,
     ScoreConfigSerializer,
 )
+from apps.scores.ranking_context import mute_result_ranking_signals
 from apps.scores.services import recalculate_event_rankings
 
 
@@ -84,14 +85,15 @@ class ResultViewSet(viewsets.ModelViewSet):
             return Response({"detail": "event e rows (lista) são obrigatórios"}, status=400)
         created = 0
         errors = []
-        for i, row in enumerate(rows, start=1):
-            data = {"event": int(event_id), **row}
-            ser = ResultSerializer(data=data)
-            if ser.is_valid():
-                ser.save()
-                created += 1
-            else:
-                errors.append({"index": i, "errors": ser.errors})
+        with mute_result_ranking_signals():
+            for i, row in enumerate(rows, start=1):
+                data = {"event": int(event_id), **row}
+                ser = ResultSerializer(data=data)
+                if ser.is_valid():
+                    ser.save()
+                    created += 1
+                else:
+                    errors.append({"index": i, "errors": ser.errors})
         if event_id:
             recalculate_event_rankings_by_id(int(event_id))
         return Response({"created": created, "errors": errors[:40]}, status=status.HTTP_200_OK)
@@ -117,50 +119,53 @@ class ResultViewSet(viewsets.ModelViewSet):
         reader = csv.DictReader(io.StringIO(text))
         created = 0
         errors = []
-        for i, row in enumerate(reader, start=2):
-            try:
-                aid = row.get("athlete_id") or row.get("atleta_id")
-                tid = row.get("team_id") or row.get("time_id")
-                raw = (
-                    row.get("raw_score")
-                    or row.get("raw_value")
-                    or row.get("valor")
-                    or row.get("tempo_seg")
-                )
-                tb = row.get("tiebreak_score") or row.get("tiebreak") or row.get("tb") or ""
-                if not raw:
-                    continue
-                data = {
-                    "event": int(event_id),
-                    "raw_score": Decimal(str(raw).replace(",", ".")),
-                    "tiebreak_score": Decimal(str(tb).replace(",", ".")) if tb not in ("", None) else None,
-                    "notes": row.get("notes") or row.get("obs") or "",
-                }
-                if aid:
-                    data["athlete"] = int(aid)
-                    data["team"] = None
-                elif tid:
-                    data["team"] = int(tid)
-                    data["athlete"] = None
-                else:
-                    errors.append({"line": i, "error": "athlete_id ou team_id ausente"})
-                    continue
-                ser = ResultSerializer(data=data)
-                if not ser.is_valid():
-                    errors.append({"line": i, "error": ser.errors})
-                    continue
-                ser.save()
-                created += 1
-            except (ValueError, InvalidOperation) as e:
-                errors.append({"line": i, "error": str(e)})
+        with mute_result_ranking_signals():
+            for i, row in enumerate(reader, start=2):
+                try:
+                    aid = row.get("athlete_id") or row.get("atleta_id")
+                    tid = row.get("team_id") or row.get("time_id")
+                    raw = (
+                        row.get("raw_score")
+                        or row.get("raw_value")
+                        or row.get("valor")
+                        or row.get("tempo_seg")
+                    )
+                    tb = row.get("tiebreak_score") or row.get("tiebreak") or row.get("tb") or ""
+                    if not raw:
+                        continue
+                    data = {
+                        "event": int(event_id),
+                        "raw_score": Decimal(str(raw).replace(",", ".")),
+                        "tiebreak_score": Decimal(str(tb).replace(",", ".")) if tb not in ("", None) else None,
+                        "notes": row.get("notes") or row.get("obs") or "",
+                    }
+                    if aid:
+                        data["athlete"] = int(aid)
+                        data["team"] = None
+                    elif tid:
+                        data["team"] = int(tid)
+                        data["athlete"] = None
+                    else:
+                        errors.append({"line": i, "error": "athlete_id ou team_id ausente"})
+                        continue
+                    ser = ResultSerializer(data=data)
+                    if not ser.is_valid():
+                        errors.append({"line": i, "error": ser.errors})
+                        continue
+                    ser.save()
+                    created += 1
+                except (ValueError, InvalidOperation) as e:
+                    errors.append({"line": i, "error": str(e)})
         recalculate_event_rankings_by_id(int(event_id))
         return Response({"created": created, "errors": errors[:30]}, status=status.HTTP_200_OK)
 
 
 def recalculate_event_rankings_by_id(event_id: int):
     from apps.events.models import Event
+    from apps.scores.ranking_context import recalc_lock_for_event
 
-    recalculate_event_rankings(Event.objects.get(pk=event_id))
+    with recalc_lock_for_event(event_id):
+        recalculate_event_rankings(Event.objects.get(pk=event_id))
 
 
 class ResultAuditLogViewSet(viewsets.ReadOnlyModelViewSet):

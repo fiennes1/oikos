@@ -96,6 +96,16 @@ class ResultSerializer(serializers.ModelSerializer):
         if not event:
             return attrs
 
+        if not self.instance:
+            if athlete and Result.objects.filter(event=event, athlete=athlete).exists():
+                raise serializers.ValidationError(
+                    {"athlete": "Este atleta já possui resultado nesta prova. Edite o existente."}
+                )
+            if team and Result.objects.filter(event=event, team=team, athlete__isnull=True).exists():
+                raise serializers.ValidationError(
+                    {"team": "Este time já possui resultado nesta prova. Edite o existente."}
+                )
+
         team_individual = _uses_team_individual_scoring(event)
 
         if event.scored_by == ScoredBy.TEAM and not team_individual:
